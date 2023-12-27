@@ -6,7 +6,7 @@ import time
 import numpy as np
 import onnxruntime as onnxruntime
 
-op('script2').store("device",onnxruntime.get_device())
+#op('script2').store("device",onnxruntime.get_device())
 
 Modelpath = str(op('script2').par.Onnxmodel)
 ort_session = onnxruntime.InferenceSession(Modelpath)

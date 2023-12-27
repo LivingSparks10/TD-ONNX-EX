@@ -14,3 +14,7 @@ Test/
 WIP/
 
 *.pyc
+
+*.[0-9]*.toe
+
+*.pyc
