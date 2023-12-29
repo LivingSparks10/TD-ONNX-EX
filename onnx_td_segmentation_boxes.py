@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 
 import math
+from colorsys import hls_to_rgb
 
 class_names = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
                'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
@@ -25,6 +26,13 @@ class_names = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'tra
 # Create a list of colors for each class where each color is a tuple of 3 integer values
 rng = np.random.default_rng(3)
 colors = rng.uniform(0, 255, size=(len(class_names), 3))
+
+# Create a smooth gradient of colors using HSL color space
+hue_values = np.linspace(0, 0.5, len(class_names))
+colors = [hls_to_rgb(hue, 0.5, 1) for hue in hue_values]
+
+# Convert RGB values to integers in the range [0, 255]
+colors = (np.array(colors) * 255)
 
 
 def nms(boxes, scores, iou_threshold):
@@ -84,44 +92,88 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=None):
+def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=None,draw_scores=True,box_monochrome=False, return_mask=False):
     img_height, img_width = image.shape[:2]
 
     size = min([img_height, img_width]) * 0.0006
     text_thickness = int(min([img_height, img_width]) * 0.001)
 
-    mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps)
+    mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps,return_mask=return_mask,box_monochrome=box_monochrome)
 
     # Draw bounding boxes and labels of detections
     for box, score, class_id in zip(boxes, scores, class_ids):
-        color = colors[class_id]
-
+        color = (255,255,255) if box_monochrome else colors[class_id]
         x1, y1, x2, y2 = box.astype(int)
 
         # Draw rectangle
         cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
+        if draw_scores:
+            label = class_names[class_id]
+            print(label)
+            caption = f'{label} {int(score * 100)}%'
+            (tw, th), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                                        fontScale=size, thickness=text_thickness)
+            th = int(th * 1.2)
 
-        label = class_names[class_id]
-        caption = f'{label} {int(score * 100)}%'
-        (tw, th), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                                      fontScale=size, thickness=text_thickness)
-        th = int(th * 1.2)
+            cv2.rectangle(mask_img, (x1, y1),
+                        (x1 + tw, y1 - th), color, -1)
 
-        cv2.rectangle(mask_img, (x1, y1),
-                      (x1 + tw, y1 - th), color, -1)
-
-        cv2.putText(mask_img, caption, (x1, y1),
-                    cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), text_thickness, cv2.LINE_AA)
+            cv2.putText(mask_img, caption, (x1, y1),
+                        cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), text_thickness, cv2.LINE_AA)
 
     return mask_img
 
 
-def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None):
+def draw_bitmask_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=None,draw_boxes=False):
+    img_height, img_width = image.shape[:2]
+
+    size = min([img_height, img_width]) * 0.0006
+    text_thickness = int(min([img_height, img_width]) * 0.001)
+
+    mask_img = draw_bitmasks(image, boxes, class_ids, mask_alpha, mask_maps)
+
+    if draw_boxes:
+        # Draw bounding boxes and labels of detections
+        for box, score, class_id in zip(boxes, scores, class_ids):
+            color = (255, 255, 255)
+
+            x1, y1, x2, y2 = box.astype(int)
+
+            # Draw rectangle
+            cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
+
+
+    return mask_img
+
+
+
+def draw_bitmasks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None):
+    mask_img = np.zeros_like(image)
+
+    for i, (box, class_id) in enumerate(zip(boxes, class_ids)):
+        color = (255, 255, 255)
+        x1, y1, x2, y2 = map(int, box)
+
+        # Draw fill mask image
+        if mask_maps is None:
+            mask_img[y1:y2, x1:x2] = color
+        else:
+            crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
+            mask_img[y1:y2, x1:x2] = mask_img[y1:y2, x1:x2] * (1 - crop_mask) + crop_mask * color
+
+    return cv2.addWeighted(mask_img, mask_alpha, mask_img, 1 - mask_alpha, 0)
+
+
+
+def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None,return_mask=False, box_monochrome=False):
+
     mask_img = image.copy()
+    if return_mask:
+        mask_img = np.zeros_like(image)
 
     # Draw bounding boxes and labels of detections
     for i, (box, class_id) in enumerate(zip(boxes, class_ids)):
-        color = colors[class_id]
+        color = (255,255,255) if box_monochrome else colors[class_id]
 
         x1, y1, x2, y2 = box.astype(int)
 
@@ -134,7 +186,7 @@ def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None):
             crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
             mask_img[y1:y2, x1:x2] = crop_mask_img
 
-    return cv2.addWeighted(mask_img, mask_alpha, image, 1 - mask_alpha, 0)
+    return cv2.addWeighted(mask_img, mask_alpha, mask_img, 1 - mask_alpha, 0) if return_mask else cv2.addWeighted(mask_img, mask_alpha, image, 1 - mask_alpha, 0)
 
 
 def draw_comparison(img1, img2, name1, name2, fontsize=2.6, text_thickness=3):
@@ -314,14 +366,17 @@ class YOLOSeg:
 
         return boxes
 
-    def draw_detections(self, image, draw_scores=True, mask_alpha=0.4):
+    def draw_detections(self, image, draw_scores=True, mask_alpha=0.4,box_monochrome=False,return_mask=False ):
         return draw_detections(image, self.boxes, self.scores,
-                               self.class_ids, mask_alpha)
+                               self.class_ids, mask_alpha,draw_scores=draw_scores,box_monochrome=box_monochrome,return_mask=False)
 
     def draw_masks(self, image, draw_scores=True, mask_alpha=0.5):
         return draw_detections(image, self.boxes, self.scores,
                                self.class_ids, mask_alpha, mask_maps=self.mask_maps)
-
+    
+    def draw_bit_mask(self, image, mask_alpha=0.5,draw_boxes=False):
+        return draw_bitmask_detections(image, self.boxes, self.scores,
+                               self.class_ids, mask_alpha, mask_maps=self.mask_maps,draw_boxes=draw_boxes)
     def get_input_details(self):
         model_inputs = self.session.get_inputs()
         self.input_names = [model_inputs[i].name for i in range(len(model_inputs))]
@@ -371,10 +426,24 @@ def visualize_segmentation(ort_output):
 
 
 
+
+def preprocess(img):
+    # Convert image to float32
+    img_float32 = img.astype(np.float32)
+
+    # Normalize image to the range [0, 1]
+    normalized_img = cv2.normalize(img_float32, None, 0, 1, cv2.NORM_MINMAX)
+
+    # Convert the normalized image back to uint8
+    normalized_img_uint8 = (normalized_img * 255).astype(np.uint8)
+
+    return normalized_img_uint8
+
+
 Modelpath = str(op('script2').par.Onnxmodel)
 #ort_session = onnxruntime.InferenceSession(Modelpath)
-
-yoloseg = YOLOSeg(Modelpath, conf_thres=0.2, iou_thres=0.5)
+print("INIT")
+yoloseg = YOLOSeg(Modelpath, conf_thres=0.4, iou_thres=0.2) 
 
 # press 'Setup Parameters' in the OP to call this function to re-create the parameters.
 def onSetupParameters(scriptOp):
@@ -396,12 +465,31 @@ def onCook(scriptOp):
     img = scriptOp.inputs[0].numpyArray()
     img_scaled = (img[:, :, :3] * 255).astype(np.uint8)
 
+    # Extract the RGB channels
+    r_channel = img[:, :, 0]
+    g_channel = img[:, :, 1]
+    b_channel = img[:, :, 2]
+
+    # Create a new BGR image by rearranging the channels
+    img_bgr = np.stack([b_channel, g_channel, r_channel], axis=-1)
+
+    # Optionally, scale the values to the uint8 range (0-255)
+    img_scaled = (img_bgr * 255).astype(np.uint8)
+
+    #img_scaled = preprocess(img_scaled)
 
     t1 = time.time() #time
+    print("len image",len(img_scaled.shape))
+
 
     boxes, scores, class_ids, masks = yoloseg(img_scaled)
-    #combined_img = yoloseg.draw_masks(img_scaled)
-    combined_img = yoloseg.draw_detections(img_scaled)
+    print(scores, class_ids)
+    combined_img = yoloseg.draw_masks(img_scaled,mask_alpha=1.0)
+    #combined_img = yoloseg.draw_bit_mask(img_scaled,draw_boxes=False)
+
+    #combined_img = yoloseg.draw_detections(img_scaled,draw_scores=False,box_monochrome=False,return_mask=False)
+ 
+
     t2 = time.time()  # time
     scriptOp.store("time", (t2 - t1) * 1000)  # time
  

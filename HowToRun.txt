@@ -1,0 +1,13 @@
+
+# how to run
+
+
+conda create -n py395 python=3.9.5  
+
+
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+ultralytics==8.0.214
+
+pip install ultralytics==8.0.214
+
+pip install ndi-python
