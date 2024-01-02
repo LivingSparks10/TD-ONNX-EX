@@ -157,32 +157,31 @@ def onCook(scriptOp):
     print("Start")
     
     img = scriptOp.inputs[0].numpyArray()
-    img_copy = img.copy()
-    
-    # opencv_converted = img*255
-    # opencv_converted = opencv_converted[:, :, :3]
-    # opencv_converted = opencv_converted.astype('uint8')
-    # opencv_converted = cv2.flip(opencv_converted, 0)
-    # opencv_converted = cv2.flip(opencv_converted, 1)
-   
-    # print(opencv_converted.shape) # (597, 1024, 4)
 
-    # print("RGB",opencv_converted[0][0], "=== 237, 28, 36 !!! ")    # [237, 28, 36]
-    img_copy = (img_copy * 255).astype(np.uint8)
+    # Convert to uint8 and scale values to 0-255
+    img = (img * 255).astype(np.uint8)
 
+    # Convert to PIL Image for further processing
+    img = Image.fromarray(img)
+    img_width, img_height = img.size
+    # Convert to RGB and resize
+    img = img.convert("RGB").resize((640, 640))
 
+    # Flip the image vertically
+    img = np.flip(img, axis=0)
 
-    img_copy = Image.fromarray(img_copy)
-    img_width, img_height = img_copy.size
-    img_copy = img_copy.convert("RGB")
-    img_copy = img_copy.resize((640,640))
+    # Transpose and reshape the image
+    input = img.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
 
-    input = np.array(img_copy)
-    
-    input = input.transpose(2, 0, 1)
-    input = input.reshape(1,3,640,640).astype("float32")
-    input = input/255.0
+    # Normalize the values
+    input = input / 255.0
 
+    # Print the shape and the values of the four corners
+    print("Shape:", input.shape)
+    print("Top-left corner:", input[:, :, 0, 0])
+    print("Top-right corner:", input[:, :, 0, -1])
+    print("Bottom-left corner:", input[:, :, -1, 0])
+    print("Bottom-right corner:", input[:, :, -1, -1])
 
     # Run YOLOv8 model
     outputs = model.run(None, {"images": input})
@@ -202,7 +201,6 @@ def onCook(scriptOp):
     boxes = np.hstack([boxes,masks])
     #print(boxes.shape) # (8400, 25684)
 
-    print("len boxes:",len(boxes))
     # parse and filter all boxes
     objects = []
     for row in boxes:
@@ -213,7 +211,7 @@ def onCook(scriptOp):
         y2 = (yc+h/2)/640*img_height
 
         prob = row[4:84].max()
-        if prob < 0.5:
+        if prob < 0.1:
             continue
         class_id = row[4:84].argmax()
         prob = row[5]
@@ -223,7 +221,7 @@ def onCook(scriptOp):
     
         objects.append([x1,y1,x2,y2,label,prob,mask,polygon])
 
-    print("len objects", len(objects))
+    #print("len objects", len(objects))
     # apply non-maximum suppression
     objects.sort(key=lambda x: x[5], reverse=True)
     
@@ -231,7 +229,7 @@ def onCook(scriptOp):
 
     while len(objects)>0:
         result.append(objects[0])
-        objects = [object for object in objects if iou(object,objects[0])<0.7]
+        objects = [object for object in objects if iou(object,objects[0])<0.5]
 
     # Create an alpha channel if not present
     if img.shape[2] == 3:
