@@ -84,6 +84,7 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
 
     mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps)
 
+    #return mask_img
     # Draw bounding boxes and labels of detections
     for box, score, class_id in zip(boxes, scores, class_ids):
         color = colors[class_id]
@@ -94,6 +95,7 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
         cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
 
         label = class_names[class_id]
+        print(label)
         caption = f'{label} {int(score * 100)}%'
         (tw, th), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                                       fontScale=size, thickness=text_thickness)
@@ -185,7 +187,6 @@ class YOLOSeg:
 
     def segment_objects(self, image):
         input_tensor = self.prepare_input(image)
-        print(image.shape)
         # Perform inference on the image
         outputs = self.inference(input_tensor)
 
@@ -310,6 +311,7 @@ class YOLOSeg:
                                self.class_ids, mask_alpha)
 
     def draw_masks(self, image, draw_scores=True, mask_alpha=0.5):
+
         return draw_detections(image, self.boxes, self.scores,
                                self.class_ids, mask_alpha, mask_maps=self.mask_maps)
 
@@ -343,25 +345,22 @@ yoloseg = YOLOSeg(Modelpath, conf_thres=0.01, iou_thres=0.01)
 
 def onCook(scriptOp):
 
-    print("Start")
     img = scriptOp.inputs[0].numpyArray()
     img_copy_CV = (img[:, :, :3] * 255).astype(np.uint8)
-
-    print(img_copy_CV[0][0])
 
     # Run YOLOv8 model
     start_time = time.time()
 
     boxes, scores, class_ids, masks = yoloseg(img_copy_CV)
-    combined_img = yoloseg.draw_detections(img_copy_CV, mask_alpha=0.1)
+    #combined_img = yoloseg.draw_detections(img_copy_CV, mask_alpha=0.1)
+    combined_img = yoloseg.draw_masks(img_copy_CV, mask_alpha=0.8)
 
-    print(len(boxes))
     end_time = time.time()
 
     # Calculate and print execution time in milliseconds
     execution_time = (end_time - start_time) * 1000  # convert seconds to milliseconds
     fps = 1 / (execution_time/1000)
-    print(f"Execution time: {execution_time:.2f} ms (FPS): {fps:.2f}")
+    #print(f"Execution time: {execution_time:.2f} ms (FPS): {fps:.2f}")
 
    
    
