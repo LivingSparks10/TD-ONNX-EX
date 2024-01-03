@@ -160,6 +160,8 @@ def draw_comparison(img1, img2, name1, name2, fontsize=2.6, text_thickness=3):
         combined_img = cv2.resize(combined_img, (3840, 2160))
 
     return combined_img
+
+
 class YOLOSeg:
 
     def __init__(self, path, conf_thres=0.7, iou_thres=0.5, num_masks=32):
@@ -183,7 +185,7 @@ class YOLOSeg:
 
     def segment_objects(self, image):
         input_tensor = self.prepare_input(image)
-
+        print(image.shape)
         # Perform inference on the image
         outputs = self.inference(input_tensor)
 
@@ -209,8 +211,7 @@ class YOLOSeg:
 
     def inference(self, input_tensor):
         start = time.perf_counter()
-        outputs = self.session.run(self.output_names, {self.input_names[0]: input_tensor})
-
+        outputs = self.session.run(None, {self.input_names[0]: input_tensor})
         # print(f"Inference time: {(time.perf_counter() - start)*1000:.2f} ms")
         return outputs
 
@@ -218,7 +219,6 @@ class YOLOSeg:
 
         predictions = np.squeeze(box_output).T
         num_classes = box_output.shape[1] - self.num_masks - 4
-
         # Filter out object confidence scores below threshold
         scores = np.max(predictions[:, 4:4+num_classes], axis=1)
         predictions = predictions[scores > self.conf_threshold, :]
@@ -316,7 +316,6 @@ class YOLOSeg:
     def get_input_details(self):
         model_inputs = self.session.get_inputs()
         self.input_names = [model_inputs[i].name for i in range(len(model_inputs))]
-
         self.input_shape = model_inputs[0].shape
         self.input_height = self.input_shape[2]
         self.input_width = self.input_shape[3]
@@ -345,25 +344,16 @@ yoloseg = YOLOSeg(Modelpath, conf_thres=0.01, iou_thres=0.01)
 def onCook(scriptOp):
 
     print("Start")
-    
     img = scriptOp.inputs[0].numpyArray()
-    img_height, img_width, nchan = img.shape
+    img_copy_CV = (img[:, :, :3] * 255).astype(np.uint8)
 
-    # OPEN CV
-    img_copy_CV = img[:, :, :3].copy()
-    #img_copy_CV = np.flip(img_copy_CV, axis=0)
-
-    img_copy_CV = cv2.cvtColor(img_copy_CV, cv2.COLOR_BGR2RGB)
-
-    #img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
-
-    input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+    print(img_copy_CV[0][0])
 
     # Run YOLOv8 model
     start_time = time.time()
 
     boxes, scores, class_ids, masks = yoloseg(img_copy_CV)
-    combined_img = yoloseg.draw_masks(img, mask_alpha=0.4)
+    combined_img = yoloseg.draw_detections(img_copy_CV, mask_alpha=0.1)
 
     print(len(boxes))
     end_time = time.time()
