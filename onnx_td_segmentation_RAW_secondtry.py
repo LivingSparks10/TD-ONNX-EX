@@ -174,6 +174,8 @@ def onCook(scriptOp):
 
     # Run YOLOv8 model
     start_time = time.time()
+    print("input secondtry",input[0][0][0][0:2])
+
     outputs = model.run(None, {"images": input})
     end_time = time.time()
 

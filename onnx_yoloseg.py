@@ -83,8 +83,12 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
     text_thickness = int(min([img_height, img_width]) * 0.001)
 
     mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps)
+    for class_id in class_ids:
+        label = class_names[class_id]
+        print(label)
 
-    #return mask_img
+    if len(mask_maps):
+        return mask_img
     # Draw bounding boxes and labels of detections
     for box, score, class_id in zip(boxes, scores, class_ids):
         color = colors[class_id]
@@ -176,6 +180,11 @@ class YOLOSeg:
 
     def __call__(self, image):
         return self.segment_objects(image)
+    
+    def direct_call(self, input_tensor,image_shape):
+        self.img_height,  self.img_width, nchan = image_shape
+
+        return self.direct_segment_objects(input_tensor)
 
     def initialize_model(self, path):
         self.session = onnxruntime.InferenceSession(path,
@@ -185,7 +194,19 @@ class YOLOSeg:
         self.get_input_details()
         self.get_output_details()
 
+
+    def direct_segment_objects(self, input_tensor):
+        # Perform inference on the image
+        outputs = self.inference(input_tensor)
+
+        self.boxes, self.scores, self.class_ids, mask_pred = self.process_box_output(outputs[0])
+        self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
+
+        return self.boxes, self.scores, self.class_ids, self.mask_maps
+
     def segment_objects(self, image):
+        print("SHOUL NOT PASS")
+
         input_tensor = self.prepare_input(image)
         # Perform inference on the image
         outputs = self.inference(input_tensor)
@@ -196,6 +217,7 @@ class YOLOSeg:
         return self.boxes, self.scores, self.class_ids, self.mask_maps
 
     def prepare_input(self, image):
+        print("SHOUL NOT PASS")
         self.img_height, self.img_width = image.shape[:2]
 
         input_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -212,6 +234,7 @@ class YOLOSeg:
 
     def inference(self, input_tensor):
         start = time.perf_counter()
+        print("input yoloseg",input_tensor[0][0][0][0:2])
         outputs = self.session.run(None, {self.input_names[0]: input_tensor})
         # print(f"Inference time: {(time.perf_counter() - start)*1000:.2f} ms")
         return outputs
@@ -339,19 +362,30 @@ class YOLOSeg:
 
 Modelpath = str(op('script2').par.Onnxmodel)
 
-yoloseg = YOLOSeg(Modelpath, conf_thres=0.01, iou_thres=0.01)
+yoloseg = YOLOSeg(Modelpath, conf_thres=0.1, iou_thres=0.5)
 
 
 
 def onCook(scriptOp):
+    print("   ")
+    print("   ")
+    print(" start ")
 
     img = scriptOp.inputs[0].numpyArray()
-    img_copy_CV = (img[:, :, :3] * 255).astype(np.uint8)
+
+    img_copy_CV = img[:, :, :3].copy()
+    img_copy_CV = np.flip(img_copy_CV, axis=0)
+
+    img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
+
+    input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+
+
 
     # Run YOLOv8 model
     start_time = time.time()
 
-    boxes, scores, class_ids, masks = yoloseg(img_copy_CV)
+    boxes, scores, class_ids, masks = yoloseg.direct_call(input,img.shape)
     #combined_img = yoloseg.draw_detections(img_copy_CV, mask_alpha=0.1)
     combined_img = yoloseg.draw_masks(img_copy_CV, mask_alpha=0.8)
 
