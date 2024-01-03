@@ -159,29 +159,29 @@ def onCook(scriptOp):
     img = scriptOp.inputs[0].numpyArray()
 
     # Convert to uint8 and scale values to 0-255
-    img = (img * 255).astype(np.uint8)
+    img_copy = (img.copy() * 255).astype(np.uint8)
 
     # Convert to PIL Image for further processing
-    img = Image.fromarray(img)
-    img_width, img_height = img.size
+    img_copy = Image.fromarray(img_copy)
+    img_width, img_height = img_copy.size
     # Convert to RGB and resize
-    img = img.convert("RGB").resize((640, 640))
+    img_copy = img_copy.convert("RGB").resize((640, 640))
 
     # Flip the image vertically
-    img = np.flip(img, axis=0)
+    img_copy = np.flip(img_copy, axis=0)
 
     # Transpose and reshape the image
-    input = img.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+    input = img_copy.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
 
     # Normalize the values
     input = input / 255.0
 
     # Print the shape and the values of the four corners
     print("Shape:", input.shape)
-    print("Top-left corner:", input[:, :, 0, 0])
-    print("Top-right corner:", input[:, :, 0, -1])
-    print("Bottom-left corner:", input[:, :, -1, 0])
-    print("Bottom-right corner:", input[:, :, -1, -1])
+    # print("Top-left corner:", input[:, :, 0, 0])
+    # print("Top-right corner:", input[:, :, 0, -1])
+    # print("Bottom-left corner:", input[:, :, -1, 0])
+    # print("Bottom-right corner:", input[:, :, -1, -1])
 
     # Run YOLOv8 model
     outputs = model.run(None, {"images": input})
@@ -224,24 +224,24 @@ def onCook(scriptOp):
     #print("len objects", len(objects))
     # apply non-maximum suppression
     objects.sort(key=lambda x: x[5], reverse=True)
-    
+    print(objects)
     result = []
 
-    while len(objects)>0:
+    while len(objects) > 0:
         result.append(objects[0])
-        objects = [object for object in objects if iou(object,objects[0])<0.5]
+        objects = [obj for obj in objects if iou(obj, objects[0]) < 0.5]
 
     # Create an alpha channel if not present
     if img.shape[2] == 3:
         alpha_channel = np.ones((img.shape[0], img.shape[1]), dtype=img.dtype) * 255
         img = np.dstack((img, alpha_channel))
 
-    for object in result:
-        [x1, y1, x2, y2, label, prob, mask, polygon] = object
+    for obj in result:
+        [x1, y1, x2, y2, label, prob, mask, polygon] = obj
         print(label, "{:.6f}".format(prob), len(polygon))
 
-        # move polygon from (0,0) to the top left point of the detected object
-        polygon = [(round(x1 + point[0]), round(y1 + point[1])) for point in polygon]
+        # Move polygon from (0,0) to the top left point of the detected object and flip along the Y-axis
+        polygon = [(round(x1 + point[0]), round(img.shape[0] - (y1 + point[1]))) for point in polygon]
 
         # Convert the polygon to numpy array for drawing
         polygon_np = np.array(polygon, dtype=np.int32)
@@ -249,12 +249,11 @@ def onCook(scriptOp):
         # Draw the polygon
         cv2.fillPoly(img, [polygon_np], color=(0, 255, 0, 125))
 
-        # Draw the rectangle
-        cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), color=(0, 255, 0, 125), thickness=2)
+        # Flip and draw the rectangle
+        cv2.rectangle(img, (int(x1), int(img.shape[0] - y2)), (int(x2), int(img.shape[0] - y1)),
+                    color=(0, 255, 0, 125), thickness=2)
 
-
-
-
+    #img = np.flip(img, axis=0)
     # Update the output image
     scriptOp.copyNumpyArray(img)
 
