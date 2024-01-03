@@ -155,6 +155,8 @@ def onCook(scriptOp):
 
     # Run YOLOv8 model
     output0, output1 = model.run(None, {"images": input})
+ 
+
 
     # Process outputs
     output0 = output0[0].transpose()
@@ -162,6 +164,12 @@ def onCook(scriptOp):
     masks = masks @ output1.reshape(32, 160 * 160)
     boxes = np.hstack([boxes, masks])
 
+    # Set a confidence threshold
+    confidence_threshold = 0.5
+    # Filter boxes based on confidence score
+    boxes = boxes[boxes[:, 4] > confidence_threshold]
+
+    
     # parse and filter all boxes
     objects = []
     for row in boxes:
@@ -171,18 +179,17 @@ def onCook(scriptOp):
         x2 = (xc+w/2)/640*img_width
         y2 = (yc+h/2)/640*img_height
 
-        prob = row[4:84].max()
-        if prob < 0.1:
-            continue
+
         class_id = row[4:84].argmax()
         prob = row[5]
         label = yolo_classes[class_id]
+        
         mask = get_mask(row[84:25684], (x1,y1,x2,y2), img_width, img_height)
         polygon = get_polygon(mask,label,prob)
-        #polygon = get_polygon_APPROXIMATED(mask,label,prob)
     
         objects.append([x1,y1,x2,y2,label,prob,mask,polygon])
-
+    print(len(objects))
+   
     #print("len objects", len(objects))
     # apply non-maximum suppression
     objects.sort(key=lambda x: x[5], reverse=True)
