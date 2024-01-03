@@ -81,19 +81,24 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
     img_height, img_width = image.shape[:2]
     size = min([img_height, img_width]) * 0.0006
     text_thickness = int(min([img_height, img_width]) * 0.001)
+    
 
     mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps)
     for class_id in class_ids:
         label = class_names[class_id]
-        print(label)
 
     if len(mask_maps):
-        return mask_img
+       return mask_img
+
     # Draw bounding boxes and labels of detections
     for box, score, class_id in zip(boxes, scores, class_ids):
         color = colors[class_id]
 
         x1, y1, x2, y2 = box.astype(int)
+
+        # Invert Y coordinates
+        y1 = img_height - y1
+        y2 = img_height - y2
 
         # Draw rectangle
         cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
@@ -114,25 +119,33 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
     return mask_img
 
 
+
 def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None):
-    mask_img = image.copy()
+    #mask_img = image.copy()
+    mask_img = np.zeros_like(image)
+    img_height, _ = image.shape[:2]
 
     # Draw bounding boxes and labels of detections
     for i, (box, class_id) in enumerate(zip(boxes, class_ids)):
         color = colors[class_id]
+       
 
         x1, y1, x2, y2 = box.astype(int)
-
-        # Draw fill mask image
-        if mask_maps is None:
-            cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, -1)
-        else:
+       
+        if mask_maps is not None:
             crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
             crop_mask_img = mask_img[y1:y2, x1:x2]
-            crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
+            color = colors[class_id].astype(int)  # Assuming colors is a NumPy array
+            crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color/255
             mask_img[y1:y2, x1:x2] = crop_mask_img
 
-    return cv2.addWeighted(mask_img, mask_alpha, image, 1 - mask_alpha, 0)
+    mask_img = cv2.flip(mask_img, 0)
+    add_weight = cv2.addWeighted(mask_img, 1.0, image, 1 - mask_alpha, 0)
+
+    return mask_img
+
+
+
 
 
 def draw_comparison(img1, img2, name1, name2, fontsize=2.6, text_thickness=3):
@@ -234,9 +247,10 @@ class YOLOSeg:
 
     def inference(self, input_tensor):
         start = time.perf_counter()
-        print("input yoloseg",input_tensor[0][0][0][0:2])
         outputs = self.session.run(None, {self.input_names[0]: input_tensor})
         # print(f"Inference time: {(time.perf_counter() - start)*1000:.2f} ms")
+        formatted_output = "out yoloseg {:.15f}".format(outputs[0][0][0][0])
+
         return outputs
 
     def process_box_output(self, box_output):
@@ -284,7 +298,10 @@ class YOLOSeg:
 
         # For every box/mask pair, get the mask map
         mask_maps = np.zeros((len(scale_boxes), self.img_height, self.img_width))
-        blur_size = (int(self.img_width / mask_width), int(self.img_height / mask_height))
+        blur_size = (max(1, int(self.img_width / mask_width)), max(1, int(self.img_height / mask_height)))
+        constant_value = 10  # You can change this to your desired constant value
+        blur_size = tuple(val + constant_value for val in blur_size)
+
         for i in range(len(scale_boxes)):
 
             scale_x1 = int(math.floor(scale_boxes[i][0]))
@@ -365,7 +382,6 @@ Modelpath = str(op('script2').par.Onnxmodel)
 yoloseg = YOLOSeg(Modelpath, conf_thres=0.1, iou_thres=0.5)
 
 
-
 def onCook(scriptOp):
     print("   ")
     print("   ")
@@ -375,6 +391,8 @@ def onCook(scriptOp):
 
     img_copy_CV = img[:, :, :3].copy()
     img_copy_CV = np.flip(img_copy_CV, axis=0)
+    img_copy_CV = cv2.cvtColor(img_copy_CV, cv2.COLOR_BGR2RGB)
+
 
     img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
 
@@ -387,7 +405,10 @@ def onCook(scriptOp):
 
     boxes, scores, class_ids, masks = yoloseg.direct_call(input,img.shape)
     #combined_img = yoloseg.draw_detections(img_copy_CV, mask_alpha=0.1)
-    combined_img = yoloseg.draw_masks(img_copy_CV, mask_alpha=0.8)
+    
+    img_copy_CV = img[:, :, :3].copy()
+    #img_copy_CV = np.flip(img_copy_CV, axis=0)
+    combined_img = yoloseg.draw_masks(img_copy_CV, mask_alpha=0.5)
 
     end_time = time.time()
 
@@ -397,8 +418,6 @@ def onCook(scriptOp):
     #print(f"Execution time: {execution_time:.2f} ms (FPS): {fps:.2f}")
 
    
-   
-
 
     scriptOp.copyNumpyArray(combined_img)
 

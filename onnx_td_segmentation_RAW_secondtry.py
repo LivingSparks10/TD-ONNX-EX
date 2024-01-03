@@ -165,7 +165,8 @@ def onCook(scriptOp):
     img_copy_CV = img[:, :, :3].copy()
     img_copy_CV = np.flip(img_copy_CV, axis=0)
 
-    #img_copy_CV = cv2.cvtColor(img_copy_CV, cv2.COLOR_BGR2RGB)
+    img_copy_CV = cv2.cvtColor(img_copy_CV, cv2.COLOR_BGR2RGB)
+    #print("img_copy_CV second",img_copy_CV)
 
     img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
 
@@ -186,6 +187,8 @@ def onCook(scriptOp):
 
    
     output0, output1 = outputs
+    formatted_output = "out RAW {:.15f}".format(outputs[0][0][0][0])
+    print(formatted_output)
 
     output0 = output0[0].transpose()
     boxes, masks = output0[:, :84], output0[:, 84:]
@@ -232,7 +235,7 @@ def onCook(scriptOp):
 
     for obj in result:
         [x1, y1, x2, y2, label, prob, mask, polygon] = obj
-        #print(label, "{:.6f}".format(prob), len(polygon))
+        print(label, "{:.6f}".format(prob), len(polygon))
 
         # Move polygon from (0,0) to the top left point of the detected object and flip along the Y-axis
         polygon = [(round(x1 + point[0]), round(img.shape[0] - (y1 + point[1]))) for point in polygon]
