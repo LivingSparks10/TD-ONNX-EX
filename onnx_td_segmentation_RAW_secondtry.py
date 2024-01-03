@@ -180,10 +180,10 @@ def onCook(scriptOp):
 
     # Print the shape and the values of the four corners
     print("Shape:", input.shape)
-    # print("Top-left corner:", input[:, :, 0, 0])
-    # print("Top-right corner:", input[:, :, 0, -1])
-    # print("Bottom-left corner:", input[:, :, -1, 0])
-    # print("Bottom-right corner:", input[:, :, -1, -1])
+    print("Top-left corner:", input[:, :, 0, 0])
+    print("Top-right corner:", input[:, :, 0, -1])
+    print("Bottom-left corner:", input[:, :, -1, 0])
+    print("Bottom-right corner:", input[:, :, -1, -1])
 
     # Run YOLOv8 model
     outputs = model.run(None, {"images": input})
@@ -221,6 +221,7 @@ def onCook(scriptOp):
     #print("len objects", len(objects))
     # apply non-maximum suppression
     objects.sort(key=lambda x: x[5], reverse=True)
+
     result = []
 
     while len(objects) > 0:
@@ -249,8 +250,7 @@ def onCook(scriptOp):
         cv2.rectangle(img, (int(x1), int(img.shape[0] - y2)), (int(x2), int(img.shape[0] - y1)),
                     color=(0, 255, 0, 125), thickness=2)
 
-    #img = np.flip(img, axis=0)
-    # Update the output image
+
     scriptOp.copyNumpyArray(img)
 
     return
