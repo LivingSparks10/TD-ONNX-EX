@@ -163,7 +163,7 @@ def onCook(scriptOp):
 
     # Convert to PIL Image for further processing
     img_copy = Image.fromarray(img_copy)
-    img_width, img_height = img_copy.size
+    img_height, img_width, nchan = img.shape
     # Convert to RGB and resize
     img_copy = img_copy.convert("RGB").resize((640, 640))
 
@@ -176,6 +176,8 @@ def onCook(scriptOp):
     # Normalize the values
     input = input / 255.0
 
+    
+
     # Print the shape and the values of the four corners
     print("Shape:", input.shape)
     # print("Top-left corner:", input[:, :, 0, 0])
@@ -186,20 +188,15 @@ def onCook(scriptOp):
     # Run YOLOv8 model
     outputs = model.run(None, {"images": input})
 
-    output0 = outputs[0]
-    output1 = outputs[1]
-    #print("Output0:",output0.shape,"Output1:",output1.shape)
+    output0, output1 = outputs
+
     output0 = output0[0].transpose()
-    output1 = output1[0]
-    boxes = output0[:,0:84]
-    masks = output0[:,84:]
-    #print("Boxes:",boxes.shape,"Masks:",masks.shape)
-    output1 = output1.reshape(32,160*160)
-    #print(masks.shape,output1.shape) # (8400, 32) (32, 25600)
+    boxes, masks = output0[:, :84], output0[:, 84:]
+
+    output1 = output1.reshape(32, 160 * 160)
     masks = masks @ output1
-    #print(masks.shape) #(8400, 25600)
-    boxes = np.hstack([boxes,masks])
-    #print(boxes.shape) # (8400, 25684)
+
+    boxes = np.hstack([boxes, masks])
 
     # parse and filter all boxes
     objects = []
@@ -224,7 +221,6 @@ def onCook(scriptOp):
     #print("len objects", len(objects))
     # apply non-maximum suppression
     objects.sort(key=lambda x: x[5], reverse=True)
-    print(objects)
     result = []
 
     while len(objects) > 0:
