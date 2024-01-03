@@ -157,33 +157,24 @@ def onCook(scriptOp):
     print("Start")
     
     img = scriptOp.inputs[0].numpyArray()
-
-    # Convert to uint8 and scale values to 0-255
-    img_copy = (img.copy() * 255).astype(np.uint8)
-
-    # Convert to PIL Image for further processing
-    img_copy = Image.fromarray(img_copy)
     img_height, img_width, nchan = img.shape
-    # Convert to RGB and resize
-    img_copy = img_copy.convert("RGB").resize((640, 640))
+    ####
+    ####
+    ####
 
-    # Flip the image vertically
-    img_copy = np.flip(img_copy, axis=0)
 
-    # Transpose and reshape the image
-    input = img_copy.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+    # OPEN CV
+    img_copy_CV = img[:, :, :3].copy()
+    img_copy_CV = np.flip(img_copy_CV, axis=0)
 
-    # Normalize the values
-    input = input / 255.0
+    #img_copy_CV = cv2.cvtColor(img_copy_CV, cv2.COLOR_BGR2RGB)
 
-    
+    img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
+    print(img_copy_CV[0][0])
+    print(img_copy_CV.shape)
 
-    # Print the shape and the values of the four corners
-    print("Shape:", input.shape)
-    print("Top-left corner:", input[:, :, 0, 0])
-    print("Top-right corner:", input[:, :, 0, -1])
-    print("Bottom-left corner:", input[:, :, -1, 0])
-    print("Bottom-right corner:", input[:, :, -1, -1])
+    input =  img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+
 
     # Run YOLOv8 model
     outputs = model.run(None, {"images": input})
