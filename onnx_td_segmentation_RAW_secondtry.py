@@ -112,16 +112,6 @@ def get_polygon(mask, label, prob):
 
 
 
-
-
-
-
-
-
-
-
-
-
 # Create a list of colors for each class where each color is a tuple of 3 integer values
 rng = np.random.default_rng(3)
 colors = rng.uniform(0, 255, size=(len(yolo_classes), 3))
@@ -151,42 +141,25 @@ Modelpath = str(op('script2').par.Onnxmodel)
 model = onnxruntime.InferenceSession(Modelpath)
 
 def onCook(scriptOp):
+    #print("Start")
 
-    print(" ")
-    print(" ")
-    print("Start")
-    
+    # Get image from input and its dimensions
     img = scriptOp.inputs[0].numpyArray()
-    img_height, img_width, nchan = img.shape
-    ####
-    ####
-    ####
+    img_height, img_width, _ = img.shape
 
+    # Process image with OpenCV
+    img_copy_CV = cv2.resize(np.flip(img[:, :, :3], axis=0), (640, 640))
 
-    # OPEN CV
-    img_copy_CV = img[:, :, :3].copy()
-    img_copy_CV = np.flip(img_copy_CV, axis=0)
-
-    #img_copy_CV = cv2.cvtColor(img_copy_CV, cv2.COLOR_BGR2RGB)
-
-    img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
-    print(img_copy_CV[0][0])
-    print(img_copy_CV.shape)
-
-    input =  img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
-
+    # Prepare input for model
+    input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
 
     # Run YOLOv8 model
-    outputs = model.run(None, {"images": input})
+    output0, output1 = model.run(None, {"images": input})
 
-    output0, output1 = outputs
-
+    # Process outputs
     output0 = output0[0].transpose()
     boxes, masks = output0[:, :84], output0[:, 84:]
-
-    output1 = output1.reshape(32, 160 * 160)
-    masks = masks @ output1
-
+    masks = masks @ output1.reshape(32, 160 * 160)
     boxes = np.hstack([boxes, masks])
 
     # parse and filter all boxes
@@ -206,6 +179,7 @@ def onCook(scriptOp):
         label = yolo_classes[class_id]
         mask = get_mask(row[84:25684], (x1,y1,x2,y2), img_width, img_height)
         polygon = get_polygon(mask,label,prob)
+        #polygon = get_polygon_APPROXIMATED(mask,label,prob)
     
         objects.append([x1,y1,x2,y2,label,prob,mask,polygon])
 
@@ -214,38 +188,19 @@ def onCook(scriptOp):
     objects.sort(key=lambda x: x[5], reverse=True)
 
     result = []
-
-    while len(objects) > 0:
-        result.append(objects[0])
-        objects = [obj for obj in objects if iou(obj, objects[0]) < 0.5]
+    while objects:
+        result.append(objects.pop(0))
+        objects = [obj for obj in objects if iou(obj, result[-1]) < 0.5]
 
     # Create an alpha channel if not present
     if img.shape[2] == 3:
-        alpha_channel = np.ones((img.shape[0], img.shape[1]), dtype=img.dtype) * 255
-        img = np.dstack((img, alpha_channel))
+        img = np.dstack((img, np.ones((img.shape[0], img.shape[1]), dtype=img.dtype) * 255))
 
-    for obj in result:
-        [x1, y1, x2, y2, label, prob, mask, polygon] = obj
-        print(label, "{:.6f}".format(prob), len(polygon))
-
-        # Move polygon from (0,0) to the top left point of the detected object and flip along the Y-axis
+    # Draw polygons and rectangles
+    for x1, y1, x2, y2, label, prob, mask, polygon in result:
+        #print(label, "{:.6f}".format(prob), len(polygon))
         polygon = [(round(x1 + point[0]), round(img.shape[0] - (y1 + point[1]))) for point in polygon]
-
-        # Convert the polygon to numpy array for drawing
-        polygon_np = np.array(polygon, dtype=np.int32)
-
-        # Draw the polygon
-        cv2.fillPoly(img, [polygon_np], color=(0, 255, 0, 125))
-
-        # Flip and draw the rectangle
-        cv2.rectangle(img, (int(x1), int(img.shape[0] - y2)), (int(x2), int(img.shape[0] - y1)),
-                    color=(0, 255, 0, 125), thickness=2)
-
+        cv2.fillPoly(img, [np.array(polygon, dtype=np.int32)], color=(0, 255, 0, 125))
+        #cv2.rectangle(img, (int(x1), int(img.shape[0] - y2)), (int(x2), int(img.shape[0] - y1)), color=(0, 255, 0, 125), thickness=2)
 
     scriptOp.copyNumpyArray(img)
-
-    return
-
-
-
-
