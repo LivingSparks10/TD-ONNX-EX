@@ -120,18 +120,17 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
 
 
 
-def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None):
-    #mask_img = image.copy()
+def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None, draw_contours=False):
     mask_img = np.zeros_like(image)
+    countours_img = np.zeros_like(image)
     img_height, _ = image.shape[:2]
 
     # Draw bounding boxes and labels of detections
     for i, (box, class_id) in enumerate(zip(boxes, class_ids)):
         color = colors[class_id]
-       
 
         x1, y1, x2, y2 = box.astype(int)
-       
+
         if mask_maps is not None:
             crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
             crop_mask_img = mask_img[y1:y2, x1:x2]
@@ -139,10 +138,18 @@ def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None):
             crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color/255
             mask_img[y1:y2, x1:x2] = crop_mask_img
 
+            contours, _ = cv2.findContours(crop_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # Offset the contours by x1 and y1
+            offset_contours = [contour + (x1, y1) for contour in contours]
+            cv2.drawContours(countours_img, offset_contours, -1, color/255, 2)
+
+       
+
     mask_img = cv2.flip(mask_img, 0)
     add_weight = cv2.addWeighted(mask_img, 1.0, image, 1 - mask_alpha, 0)
+    countours_img = cv2.flip(countours_img, 0)
 
-    return mask_img
+    return countours_img
 
 
 
@@ -379,7 +386,7 @@ class YOLOSeg:
 
 Modelpath = str(op('script2').par.Onnxmodel)
 
-yoloseg = YOLOSeg(Modelpath, conf_thres=0.1, iou_thres=0.5)
+yoloseg = YOLOSeg(Modelpath, conf_thres=0.3, iou_thres=0.5)
 
 
 def onCook(scriptOp):
