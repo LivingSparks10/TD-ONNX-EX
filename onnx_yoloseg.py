@@ -86,6 +86,7 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
     mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps)
     for class_id in class_ids:
         label = class_names[class_id]
+        print(label)
 
     if len(mask_maps):
        return mask_img
@@ -401,16 +402,35 @@ def onCook(scriptOp):
     print("   ")
     print(" start ")
 
+    ## DO NOT TOUCH THIS PART
     img = scriptOp.inputs[0].numpyArray()
-
-    img_copy_CV = img[:, :, :3].copy()
+    img_copy_CV = img[:, :, :3].copy()*255
     img_copy_CV = np.flip(img_copy_CV, axis=0)
-    img_copy_CV = cv2.cvtColor(img_copy_CV, cv2.COLOR_BGR2RGB)
-
-
     img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
+    img_copy_CV = img_copy_CV.astype(int)
+    # Print pixel values for the four corners
+    #top_left_pixel = img_copy_CV[0, 0]
+    # [70 67 22] dog and cat
+    #print("Top-left pixel:", top_left_pixel)
+    ## UNTIL HERE 
 
-    input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+
+    # Assuming img_copy_CV is a NumPy array representing the image
+
+
+    input = img_copy_CV.transpose(2, 0, 1)
+    input = input.reshape(1,3,640,640).astype("float32")
+    input = input/255.0
+    input = np.round(input, decimals=5)
+
+    #input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+
+    ### print("input image",input[0][0][0][0:5]) cat and dog
+    ##array([    0.27451,     0.27451,     0.28235,      0.2902,     0.30196], dtype=float32)
+
+
+
+
     conf = float(op('script2').par.Conf)
     yoloseg.conf_threshold = conf
 
