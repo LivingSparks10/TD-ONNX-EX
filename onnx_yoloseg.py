@@ -81,47 +81,51 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
     img_height, img_width = image.shape[:2]
     size = min([img_height, img_width]) * 0.0006
     text_thickness = int(min([img_height, img_width]) * 0.001)
+    print(size)
     
 
     mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps)
-    for class_id in class_ids:
-        label = class_names[class_id]
-        print(label)
+    # for class_id in class_ids:
+    #     label = class_names[class_id]
+    #     print(label)
 
-    if len(mask_maps):
-       return mask_img
-
+    # if len(mask_maps):
+    #     return mask_img 
     # Draw bounding boxes and labels of detections
     for box, score, class_id in zip(boxes, scores, class_ids):
-        color = colors[class_id]
-        
-        x1, y1, x2, y2 = box.astype(int)
+        color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
+        x1, y1, x2, y2 = box.astype(int)        
 
-        # Invert Y coordinates
-        y1 = img_height - y1
-        y2 = img_height - y2
-
-        # Draw rectangle
+        # Draw rectangle # BOXES AROUND  THE DETECTION
         cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
 
         label = class_names[class_id]
-        print(label)
+        #print(label)
         caption = f'{label} {int(score * 100)}%'
-        (tw, th), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+
+        font = cv2.FONT_HERSHEY_PLAIN
+        (tw, th), _ = cv2.getTextSize(text=caption, fontFace=font,
                                       fontScale=size, thickness=text_thickness)
         th = int(th * 1.2)
 
-        cv2.rectangle(mask_img, (x1, y1),
-                      (x1 + tw, y1 - th), color, -1)
+        cv2.rectangle(mask_img, (x1, y1-th),
+                      (x1 + tw, y1 +th), color, -1)
+        
 
         cv2.putText(mask_img, caption, (x1, y1),
-                    cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), text_thickness, cv2.LINE_AA)
+                     font, size, (255,255,255), text_thickness, cv2.LINE_AA)
+        
+       
+
+        
+
 
     return mask_img
 
 
 
 def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None, draw_contours=False):
+    global font
     mask_img = np.zeros_like(image)
     countours_img = np.zeros_like(image)
     img_height, _ = image.shape[:2]
@@ -135,22 +139,19 @@ def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None, draw_con
         if mask_maps is not None:
             crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
             crop_mask_img = mask_img[y1:y2, x1:x2]
-            color = colors[class_id].astype(int)  # Assuming colors is a NumPy array
-            crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color/255
+            color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
+            crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
             mask_img[y1:y2, x1:x2] = crop_mask_img
 
             contours, _ = cv2.findContours(crop_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             # Offset the contours by x1 and y1
             offset_contours = [contour + (x1, y1) for contour in contours]
-            cv2.drawContours(countours_img, offset_contours, -1, color/255, 2)
+            cv2.drawContours(countours_img, offset_contours, -1, color, 2)
 
-       
-
-    mask_img = cv2.flip(mask_img, 0)
+    
     add_weight = cv2.addWeighted(mask_img, 1.0, image, 1 - mask_alpha, 0)
-    countours_img = cv2.flip(countours_img, 0)
 
-    return countours_img
+    return mask_img
 
 
 
@@ -396,6 +397,11 @@ Modelpath = str(op('script2').par.Onnxmodel)
 
 yoloseg = YOLOSeg(Modelpath, conf_thres=0.3, iou_thres=0.5)
 
+# font_path = str(op('script2').par.Font)
+
+# font_size = 20
+# font = ImageFont.truetype(font_path, font_size)
+
 
 def onCook(scriptOp):
     print("   ")
@@ -450,6 +456,7 @@ def onCook(scriptOp):
     #print(f"Execution time: {execution_time:.2f} ms (FPS): {fps:.2f}")
 
    
+    combined_img = cv2.flip(combined_img, 0)
 
     scriptOp.copyNumpyArray(combined_img)
 
@@ -463,6 +470,18 @@ def onSetupParameters(scriptOp):
 	parJSON = """
 	{
 		"Fast Neural Style": {
+			"Font": {
+				"name": "Font",
+				"label": "font",
+				"page": "Fast Neural Style",
+				"style": "File",
+				"default": "",
+				"enable": true,
+				"startSection": false,
+				"readOnly": false,
+				"enableExpr": null,
+				"help": ""
+			},
 			"Onnxmodel": {
 				"name": "Onnxmodel",
 				"label": "ONNX Model",
@@ -499,5 +518,3 @@ def onSetupParameters(scriptOp):
 	"""
 	parData = TDJSON.textToJSON(parJSON)
 	TDJSON.addParametersFromJSONOp(scriptOp, parData, destroyOthers=True)
-
-
