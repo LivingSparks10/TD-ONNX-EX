@@ -400,11 +400,11 @@ yoloseg = YOLOSeg(Modelpath, conf_thres=0.3, iou_thres=0.5)
 def onCook(scriptOp):
     print("   ")
     print("   ")
-    print(" start ")
+    print("start ")
 
     ## DO NOT TOUCH THIS PART
     img = scriptOp.inputs[0].numpyArray()
-    img_copy_CV = img[:, :, :3].copy()*255
+    img_copy_CV = img[:, :, :3]*255
     img_copy_CV = np.flip(img_copy_CV, axis=0)
     img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
     img_copy_CV = img_copy_CV.astype(int)
@@ -414,14 +414,12 @@ def onCook(scriptOp):
     #print("Top-left pixel:", top_left_pixel)
     ## UNTIL HERE 
 
+    # Transpose and reshape in a single step
+    input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
 
-    # Assuming img_copy_CV is a NumPy array representing the image
-
-
-    input = img_copy_CV.transpose(2, 0, 1)
-    input = input.reshape(1,3,640,640).astype("float32")
-    input = input/255.0
-    input = np.round(input, decimals=5)
+    # Normalize in a single step
+    #input = np.round(input / 255.0, decimals=5)
+    input = input / 255.0
 
     #input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
 
