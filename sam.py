@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 from copy import deepcopy
+import time
 print("   ")
 print("   ")
 print("   ")
@@ -15,6 +16,7 @@ decoder_path = str(op('script2').par.Decoder)
 encoder = ort.InferenceSession(encoder_path)
 decoder = ort.InferenceSession(decoder_path)
 
+print( "Usign device",ort.get_device()  )
 
 def onCook(scriptOp):
     print("   ")
@@ -50,9 +52,11 @@ def onCook(scriptOp):
         input_tensor = np.pad(input_tensor,((0,0),(0,0),(0,1024-resized_height),(0,0)))
     else:
         input_tensor = np.pad(input_tensor,((0,0),(0,0),(0,0),(0,1024-resized_width)))
-
+            
+    start = time.perf_counter()
     outputs = encoder.run(None,{"images":input_tensor})
     embeddings = outputs[0]
+    print(f"Encode time: {(time.perf_counter() - start)*1000:.2f} ms")
 
     # ENCODE PROMPT (single point)
     input_point = np.array([[321,230]])
@@ -67,10 +71,23 @@ def onCook(scriptOp):
 
     onnx_coord = coords.astype("float32")
 
+    #option 2 box:
+    # input_box = np.array([0, 0, 300, 500]).reshape(2,2)
+    # input_labels = np.array([2,3])
+
+    # onnx_coord = input_box[None, :, :]
+    # onnx_label = input_labels[None, :].astype(np.float32)
+
+    # coords = deepcopy(onnx_coord).astype(float)
+    # coords[..., 0] = coords[..., 0] * (resized_width / orig_width)
+    # coords[..., 1] = coords[..., 1] * (resized_height / orig_height)
+
+    # onnx_coord = coords.astype("float32")
+
     onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
     onnx_has_mask_input = np.zeros(1, dtype=np.float32)
 
-    
+
     masks,_,_ = decoder.run(None,{
         "image_embeddings": embeddings,
         "point_coords": onnx_coord,
@@ -84,7 +101,7 @@ def onCook(scriptOp):
     print(mask.shape)
 
     opencv_image = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
-
+    opencv_image = cv2.flip(opencv_image,0)
 
     scriptOp.copyNumpyArray(opencv_image)
 

@@ -77,14 +77,18 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=None):
-    img_height, img_width = image.shape[:2]
+def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=None):
+
+
+    print(image_shape)
+    img_height, img_width = image_shape[:2]
+
     size = min([img_height, img_width]) * 0.0006
     text_thickness = int(min([img_height, img_width]) * 0.001)
-    print(size)
     
+    black_image = np.zeros((img_height, img_width, 3), dtype=np.float32)
 
-    mask_img = draw_masks(image, boxes, class_ids, mask_alpha, mask_maps)
+    mask_img = draw_masks(black_image, boxes, class_ids, mask_alpha, mask_maps)
     # for class_id in class_ids:
     #     label = class_names[class_id]
     #     print(label)
@@ -255,7 +259,7 @@ class YOLOSeg:
     def inference(self, input_tensor):
         start = time.perf_counter()
         outputs = self.session.run(None, {self.input_names[0]: input_tensor})
-        print(f"Inference time: {(time.perf_counter() - start)*1000:.2f} ms")
+        #print(f"Inference time: {(time.perf_counter() - start)*1000:.2f} ms")
         formatted_output = "out yoloseg {:.15f}".format(outputs[0][0][0][0])
 
         return outputs
@@ -400,18 +404,25 @@ yoloseg = YOLOSeg(Modelpath, conf_thres=0.3, iou_thres=0.5)
 # font_size = 20
 # font = ImageFont.truetype(font_path, font_size)
 
+print("   ")
+print("   ")
+print( "Using device",onnxruntime.get_device()  )
+
 
 def onCook(scriptOp):
     print("   ")
     print("   ")
-    print("start ")
-
+    print("cook")
+    start_time = time.time()
     ## DO NOT TOUCH THIS PART
     img = scriptOp.inputs[0].numpyArray()
-    img_copy_CV = img[:, :, :3]*255
-    img_copy_CV = np.flip(img_copy_CV, axis=0)
-    img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
-    img_copy_CV = img_copy_CV.astype(int)
+    
+
+    
+    img_copy_CV = img[:, :, :3]
+    #img_copy_CV = np.flip(img_copy_CV, axis=0)
+    #img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
+    #img_copy_CV = img_copy_CV.astype(int)
     # Print pixel values for the four corners
     #top_left_pixel = img_copy_CV[0, 0]
     # [70 67 22] dog and cat
@@ -423,7 +434,8 @@ def onCook(scriptOp):
 
     # Normalize in a single step
     #input = np.round(input / 255.0, decimals=5)
-    input = input / 255.0
+    
+    end_time = time.time()
 
     #input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
 
@@ -432,29 +444,29 @@ def onCook(scriptOp):
 
 
 
-
+ 
+    
     conf = float(op('script2').par.Conf)
     yoloseg.conf_threshold = conf
 
     # Run YOLOv8 model
-    start_time = time.time()
-
-    boxes, scores, class_ids, masks = yoloseg.direct_call(input,img.shape)
+    resX = int(op('info')["resx"])
+    resY = int(op('info')["resy"])
+    orig_img_shape = (resY,resX,4)
+    boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape)
     #combined_img = yoloseg.draw_detections(img_copy_CV, mask_alpha=0.1)
-    end_time = time.time()
 
-    img_copy_CV = img[:, :, :3].copy()
     #img_copy_CV = np.flip(img_copy_CV, axis=0)
-    combined_img = yoloseg.draw_masks(img_copy_CV, mask_alpha=0.5)
+    combined_img = yoloseg.draw_masks(orig_img_shape, mask_alpha=0.5)
 
 
     # Calculate and print execution time in milliseconds
     execution_time = (end_time - start_time) * 1000  # convert seconds to milliseconds
     fps = 1 / (execution_time/1000)
-    #print(f"Execution time: {execution_time:.2f} ms (FPS): {fps:.2f}")
+    print(f"Execution time: {execution_time:.2f} ms (FPS): {fps:.2f}")
 
    
-    combined_img = cv2.flip(combined_img, 0)
+    #combined_img = cv2.flip(combined_img, 0)
 
     scriptOp.copyNumpyArray(combined_img)
 
