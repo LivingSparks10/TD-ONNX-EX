@@ -94,28 +94,26 @@ def draw_detections(image, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=N
     # Draw bounding boxes and labels of detections
     for box, score, class_id in zip(boxes, scores, class_ids):
         color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
-        x1, y1, x2, y2 = box.astype(int)        
+        x1, y1, x2, y2 = box.astype(int)
 
-        # Draw rectangle # BOXES AROUND  THE DETECTION
+        # Draw rectangle
         cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
 
         label = class_names[class_id]
-        #print(label)
         caption = f'{label} {int(score * 100)}%'
-
-        font = cv2.FONT_HERSHEY_PLAIN
-        (tw, th), _ = cv2.getTextSize(text=caption, fontFace=font,
+        (tw, th), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                                       fontScale=size, thickness=text_thickness)
         th = int(th * 1.2)
 
-        cv2.rectangle(mask_img, (x1, y1-th),
-                      (x1 + tw, y1 +th), color, -1)
-        
+        cv2.rectangle(mask_img, (x1, y1),
+                      (x1 + tw, y1 - th), color, -1)
 
         cv2.putText(mask_img, caption, (x1, y1),
-                     font, size, (255,255,255), text_thickness, cv2.LINE_AA)
+                    cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), text_thickness, cv2.LINE_AA)
         
        
+    
+
 
         
 
