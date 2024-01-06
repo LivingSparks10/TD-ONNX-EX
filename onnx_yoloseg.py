@@ -79,8 +79,6 @@ def sigmoid(x):
 
 def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_maps=None):
 
-
-    print(image_shape)
     img_height, img_width = image_shape[:2]
 
     size = min([img_height, img_width]) * 0.0006
@@ -103,17 +101,16 @@ def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_
         # Draw rectangle
         cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
 
-        label = class_names[class_id]
-        caption = f'{label} {int(score * 100)}%'
-        (tw, th), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                                      fontScale=size, thickness=text_thickness)
-        th = int(th * 1.2)
+        # label = class_names[class_id]
+        # caption = f'{label} {int(score * 100)}%'
+        # (tw, th), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+        #                               fontScale=size, thickness=text_thickness)
+        # th = int(th * 1.2)
 
-        cv2.rectangle(mask_img, (x1, y1),
-                      (x1 + tw, y1 - th), color, -1)
+        # cv2.rectangle(mask_img, (x1, y1),
+        #               (x1 + tw, y1 - th), color, -1)
 
-        cv2.putText(mask_img, caption, (x1, y1),
-                    cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), text_thickness, cv2.LINE_AA)
+        # cv2.putText(mask_img, caption, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), text_thickness, cv2.LINE_AA)
         
        
     
@@ -145,13 +142,12 @@ def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None, draw_con
             crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
             mask_img[y1:y2, x1:x2] = crop_mask_img
 
-            contours, _ = cv2.findContours(crop_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            # Offset the contours by x1 and y1
-            offset_contours = [contour + (x1, y1) for contour in contours]
-            cv2.drawContours(countours_img, offset_contours, -1, color, 2)
+            # contours, _ = cv2.findContours(crop_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            # # Offset the contours by x1 and y1
+            # offset_contours = [contour + (x1, y1) for contour in contours]
+            # cv2.drawContours(countours_img, offset_contours, -1, color, 2)
 
     
-    add_weight = cv2.addWeighted(mask_img, 1.0, image, 1 - mask_alpha, 0)
 
     return mask_img
 
@@ -413,38 +409,11 @@ def onCook(scriptOp):
     print("   ")
     print("   ")
     print("cook")
-    start_time = time.time()
-    ## DO NOT TOUCH THIS PART
+
     img = scriptOp.inputs[0].numpyArray()
-    
-
-    
     img_copy_CV = img[:, :, :3]
-    #img_copy_CV = np.flip(img_copy_CV, axis=0)
-    #img_copy_CV = cv2.resize(img_copy_CV, (640, 640))
-    #img_copy_CV = img_copy_CV.astype(int)
-    # Print pixel values for the four corners
-    #top_left_pixel = img_copy_CV[0, 0]
-    # [70 67 22] dog and cat
-    #print("Top-left pixel:", top_left_pixel)
-    ## UNTIL HERE 
-
-    # Transpose and reshape in a single step
     input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
 
-    # Normalize in a single step
-    #input = np.round(input / 255.0, decimals=5)
-    
-    end_time = time.time()
-
-    #input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
-
-    ### print("input image",input[0][0][0][0:5]) cat and dog
-    ##array([    0.27451,     0.27451,     0.28235,      0.2902,     0.30196], dtype=float32)
-
-
-
- 
     
     conf = float(op('script2').par.Conf)
     yoloseg.conf_threshold = conf
@@ -453,20 +422,16 @@ def onCook(scriptOp):
     resX = int(op('info')["resx"])
     resY = int(op('info')["resy"])
     orig_img_shape = (resY,resX,4)
-    boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape)
-    #combined_img = yoloseg.draw_detections(img_copy_CV, mask_alpha=0.1)
+    start_time = time.time()
 
-    #img_copy_CV = np.flip(img_copy_CV, axis=0)
-    combined_img = yoloseg.draw_masks(orig_img_shape, mask_alpha=0.5)
+    boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape) # 30 millisecond
+    end_time = time.time()
 
+    combined_img = yoloseg.draw_masks(orig_img_shape, mask_alpha=0.5) # 23 millisecond
 
     # Calculate and print execution time in milliseconds
-    execution_time = (end_time - start_time) * 1000  # convert seconds to milliseconds
-    fps = 1 / (execution_time/1000)
-    print(f"Execution time: {execution_time:.2f} ms (FPS): {fps:.2f}")
+    print(f"Execution time: { (end_time - start_time) * 1000:.2f} ms")
 
-   
-    #combined_img = cv2.flip(combined_img, 0)
 
     scriptOp.copyNumpyArray(combined_img)
 
