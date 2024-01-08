@@ -215,8 +215,6 @@ class YOLOSeg:
         # Initialize model
         self.initialize_model(path)
 
-    def __call__(self, image):
-        return self.segment_objects(image)
     
     def direct_call(self, input_tensor,image_shape):
         self.img_height,  self.img_width, nchan = image_shape
@@ -241,33 +239,6 @@ class YOLOSeg:
 
         return self.boxes, self.scores, self.class_ids, self.mask_maps
 
-    def segment_objects(self, image):
-        print("SHOUL NOT PASS")
-
-        input_tensor = self.prepare_input(image)
-        # Perform inference on the image
-        outputs = self.inference(input_tensor)
-
-        self.boxes, self.scores, self.class_ids, mask_pred = self.process_box_output(outputs[0])
-        self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
-
-        return self.boxes, self.scores, self.class_ids, self.mask_maps
-
-    def prepare_input(self, image):
-        print("SHOUL NOT PASS")
-        self.img_height, self.img_width = image.shape[:2]
-
-        input_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        # Resize input image
-        input_img = cv2.resize(input_img, (self.input_width, self.input_height))
-
-        # Scale input pixel values to 0 to 1
-        input_img = input_img / 255.0
-        input_img = input_img.transpose(2, 0, 1)
-        input_tensor = input_img[np.newaxis, :, :, :].astype(np.float32)
-
-        return input_tensor
 
     def inference(self, input_tensor):
         start = time.perf_counter()
@@ -304,7 +275,6 @@ class YOLOSeg:
 
         # Get bounding boxes for each object
         boxes = self.extract_boxes(box_predictions)
-
         # Apply non-maxima suppression to suppress weak, overlapping bounding boxes
         indices = nms(boxes, scores, self.iou_threshold)
 
@@ -447,7 +417,7 @@ def onCook(scriptOp):
     combined_img = yoloseg.draw_masks(orig_img_shape, mask_alpha=0.5) # 23 millisecond
 
     # Calculate and print execution time in milliseconds
-    print(f"Execution time: { (end_time - start_time) * 1000:.2f} ms")
+    #print(f"Execution time: { (end_time - start_time) * 1000:.2f} ms")
 
 
     scriptOp.copyNumpyArray(combined_img)
