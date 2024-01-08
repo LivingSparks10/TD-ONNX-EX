@@ -5,6 +5,256 @@ import cv2
 import numpy as np
 import onnxruntime
 
+import numpy as np
+import pandas as pd
+from scipy.optimize import linear_sum_assignment
+
+class MultiObjectTracker:
+
+    def __init__(self, track_persistance: int = 1, 
+                minimum_track_length: int = 1,
+                iou_lower_threshold: float = 0.04,
+                interpolate_tracks: bool = False,
+                cross_class_tracking: bool = True):
+
+        assert track_persistance >= 0
+        assert 0 <= iou_lower_threshold <= 1
+        assert minimum_track_length > 0
+
+        self.track_persistance = track_persistance
+        self.iou_lower_threshold = iou_lower_threshold
+        self.minimum_track_length = minimum_track_length
+        self.interpolate_tracks = interpolate_tracks
+        self.cross_class_tracking = cross_class_tracking
+
+        self.active_tracks = []
+        self.finished_tracks = []
+
+        self.finished_tracking = False
+        self.displayed_finished_tracking_warning = False
+
+        self.time_step = 0
+
+    def step(self,list_of_new_boxes: list = []):
+        ''' Call this method to add more bounding boxes to the tracker'''
+
+        self.time_step += 1 #increment time step
+
+        #build hungarian matrix of bbox IOU's
+        hungarian_matrix = np.zeros((len(self.active_tracks), len(list_of_new_boxes)))
+
+        if len(self.active_tracks) > 0 and len(list_of_new_boxes) > 0:
+            active_boxes = np.concatenate([track.get_next_predicted_box()[np.newaxis,:]
+                            for track in self.active_tracks], axis = 0)
+
+            new_boxes = np.concatenate([ b['box'][np.newaxis,:] for b in list_of_new_boxes], 
+                                        axis = 0)
+            hungarian_matrix = IOU(new_boxes,active_boxes)
+
+            #print(hungarian_matrix)
+
+            #zero out IOU's less than IOU min threshold to prevent assigment
+            hungarian_matrix[hungarian_matrix < self.iou_lower_threshold] = 0
+
+            #zero out IOU's where the object_class variables don't match
+            if not self.cross_class_tracking:
+                for i,new_box in enumerate(list_of_new_boxes):
+                    if "object_class" in new_box:
+                        for j,active_track in enumerate(self.active_tracks):
+                            active_box = active_track.boxes[0] #shouldn't matter which box in the track
+                            if "object_class" in active_box and \
+                                are_coco_classes_different(new_box['object_class'], active_box['object_class']):
+                                hungarian_matrix[i,j] = 0
+
+            #print(hungarian_matrix)
+
+            #compute optimal box matches with Hungarian algorithm
+            row_ind, col_ind = linear_sum_assignment(hungarian_matrix, maximize = True)
+
+            #assign new boxes to active tracks, boxes not assigned this way become new tracks
+            for i,box in enumerate(list_of_new_boxes):
+                if i in row_ind:
+                    #if the new box has matching active track, add it to that track
+                    r = (row_ind==i).argmax(axis=0)
+                    c = col_ind[r]
+                    if hungarian_matrix[r,c] > 0:
+                        self.active_tracks[c].add_box(box, self.time_step)
+                    else:
+                        #new box has no matching active track, create a new track for it
+                        self.active_tracks.append(Track(initial_box = box, initial_time_step = self.time_step))
+                else:
+                    #new box has no matching active track, create a new track for it (same as row above)
+                    self.active_tracks.append(Track(initial_box = box, initial_time_step = self.time_step))
+
+        else:
+            for box in list_of_new_boxes:
+                self.active_tracks.append(Track(initial_box = box, initial_time_step = self.time_step))
+
+        #active tracks with age >= track_persistance are set to be finished tracks
+        newly_finished_track_ind = []
+        for i, trk in enumerate(self.active_tracks):
+            if trk.timestamps[-1] + self.track_persistance < self.time_step:
+                self.finished_tracks.append(trk)
+                newly_finished_track_ind.append(i)
+
+        self.active_tracks = [element for i,element in enumerate(self.active_tracks) if i not in newly_finished_track_ind]
+
+    def finish_tracking(self):
+        ''' Call this method when you are done adding new boxes.
+
+        Finish all active tracks, do interpolation if selected, prune tracks shorter than 
+        minimum_track_length parameter '''
+        self.finished_tracks.extend(self.active_tracks)
+        self.active_tracks = []
+
+        if self.interpolate_tracks:
+            for i in range(len(self.finished_tracks)):
+                self.finished_tracks[i].interpolate()
+
+        #prune tracks with length less than minimum_track_length
+        self.finished_tracks = [trk for trk in self.finished_tracks if len(trk) >= self.minimum_track_length]
+
+        #sort tracks by track start time
+        self.finished_tracks = sorted(self.finished_tracks, key = lambda x: x.timestamps[0])
+
+        self.finished_tracking = True
+
+    def export_pandas_dataframe(self, additional_cols = 'auto'):
+        '''Converts multi-object tracker internal state to Pandas dataframe with cols:
+        Time, TrackID, X1, Y1, X2, Y2
+
+        Arguments:
+        additional_cols {list or str} -- List of additional attributes to grab from the Box class. 
+                                For each attribute, a column will be added to dataframe and
+                                the function will attempt to grab that value from each Box object
+                                added to the dataframe. If the attribute is not present in a
+                                Box object, it will add NaN or None.
+
+                                If this variable is set to the string "auto", it will populate this
+                                variable with all extra params in all Box added to the tracker. 
+
+        Returns:
+        Pandas DataFrame with specified rows'''
+
+        if not self.finished_tracking and not self.displayed_finished_tracking_warning:
+            print('[WARNING] -- Exporting Pandas DataFrame without calling finish_tracking(). Active tracks will not be exported.')
+            self.displayed_finished_tracking_warning = True
+
+        if isinstance(additional_cols,str) and additional_cols in ['Auto','auto']:
+            additional_cols = set()
+
+            for trk in self.finished_tracks:
+                for box in trk.boxes:
+                    additional_cols = additional_cols.union(set(box.keys()))
+
+            additional_cols.discard("box")
+            additional_cols = list(additional_cols)
+
+        df_list = []
+
+        for time in range(self.time_step + 1):
+            for track_id, trk in enumerate(self.finished_tracks):
+                if time in trk.timestamps:
+                    box = trk.boxes[trk.timestamps.index(time)]
+                    row = {'Time': time,
+                            'TrackID': track_id,
+                            'X1': box['box'][0],
+                            'Y1': box['box'][1],
+                            'X2': box['box'][2],
+                            'Y2': box['box'][3],
+                            }
+                    for col in additional_cols:
+                        row[col] = box[col] if col in box.keys() else None
+
+                    df_list.append(row)
+
+        return pd.DataFrame(df_list)
+
+    def print_internal_state(self):
+        ''' For debugging purposes'''
+
+        print('###########################################')
+        print(f'Time Step: {self.time_step}')
+        print('---------------Active Tracks---------------')
+        for i,trk in enumerate(self.active_tracks):
+            print(f'Track {i}: { [list(b["box"]) for b in trk.boxes] }')
+
+        print('--------------Finished Tracks--------------')
+        for i,trk in enumerate(self.finished_tracks):
+            print(f'Track {i}: {[list(b["box"]) for b in trk.boxes]}')
+        print('###########################################')
+
+
+class Track:
+
+    def __init__(self, initial_box, initial_time_step):
+        self.boxes = [initial_box]
+        self.timestamps = [initial_time_step]
+
+    def get_next_predicted_box(self):
+        #maybe add a kalman filter here or something
+
+        return self.boxes[-1]['box']
+
+    def add_box(self, box, time_step):
+        self.boxes.append(box)
+        self.timestamps.append(time_step)
+
+    def interpolate(self):
+        ''' TODO: Implement this function'''
+        interpolated_boxes = []
+
+        for i in range(len(self.boxes) - 1):
+            interpolated_boxes.append(self.boxes[i])
+
+            delta = self.timestamps[i+1] - self.timestamps[i]
+            if delta == 1:
+                continue #no need to interpolate sequential boxes
+
+            #not interpolating confidence or other numerical parameters
+            new_boxes = [{"box": ((delta - j) * self.boxes[i]['box'] + j * self.boxes[i+1]['box'])/delta}
+                            for j in range(1, delta)]
+
+            interpolated_boxes.extend(new_boxes)
+
+        interpolated_boxes.append(self.boxes[-1])
+        self.boxes = interpolated_boxes
+        self.timestamps = list(range(self.timestamps[0], self.timestamps[-1] + 1))
+
+        assert len(self.boxes) == len(self.timestamps), f'length of boxes ({len(self.boxes)} != length timestamps ({len(self.timestamps)})'
+
+
+    def __len__(self):
+        return self.timestamps[-1] - self.timestamps[0] + 1
+
+def IOU(bboxes1, bboxes2, isPixelCoord = 1):
+    #vectorized IOU numpy code from:
+    #https://medium.com/@venuktan/vectorized-intersection-over-union-iou-in-numpy-and-tensor-flow-4fa16231b63d
+
+    #input N x 4 numpy arrays
+    x11, y11, x12, y12 = np.split(bboxes1, 4, axis=1)
+    x21, y21, x22, y22 = np.split(bboxes2, 4, axis=1)
+    xA = np.maximum(x11, np.transpose(x21))
+    yA = np.maximum(y11, np.transpose(y21))
+    xB = np.minimum(x12, np.transpose(x22))
+    yB = np.minimum(y12, np.transpose(y22))
+    interArea = np.maximum((xB - xA + isPixelCoord), 0) * np.maximum((yB - yA + isPixelCoord), 0)
+    boxAArea = (x12 - x11 + isPixelCoord) * (y12 - y11 + isPixelCoord)
+    boxBArea = (x22 - x21 + isPixelCoord) * (y22 - y21 + isPixelCoord)
+    iou = interArea / (boxAArea + np.transpose(boxBArea) - interArea)
+    return iou
+
+def are_coco_classes_different(c1, c2):
+    ''' Sets which classes are "equivalent" for the tracker. Most classes are not equal
+    but objects like pickup trucks can be detected as both car and truck. Or sometimes
+    busses can be detected as both truck and bus. This function is a quick and dirty
+    way to stop the track from breaking.
+    '''
+    return c1 != c2 and ( {c1,c2} not in [{'car','truck'}, {'bus','truck'}])
+
+
+
+
 class_names = ['person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light',
                'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow',
                'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
@@ -391,6 +641,8 @@ print("   ")
 print("   ")
 print( "Using device",onnxruntime.get_device()  )
 
+mot = MultiObjectTracker(track_persistance = 2, minimum_track_length = 2, iou_lower_threshold = 0.04, interpolate_tracks = True)
+
 
 def onCook(scriptOp):
     print("   ")
@@ -412,13 +664,53 @@ def onCook(scriptOp):
     start_time = time.time()
 
     boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape) # 30 millisecond
-    end_time = time.time()
+
+    formatted_boxes = []
+    for box, score, class_id, mask in zip(boxes, scores, class_ids, masks):
+        confidence = float(score)
+        object_class = class_names[class_id]
+        formatted_box = {
+            "box": np.array([box[0], box[1], box[2], box[3]]),  # Convert to (x_min, y_min, x_max, y_max) format
+            "confidence": confidence,
+            "object_class": object_class
+        }
+        formatted_boxes.append(formatted_box)
+
+    # Use the formatted_boxes in your following steps
+    mot.step(formatted_boxes)
+    #mot.print_internal_state()
 
     combined_img = yoloseg.draw_masks(orig_img_shape, mask_alpha=0.5) # 23 millisecond
+    
+    for track in mot.active_tracks:
+        track_boxes = track.boxes
 
-    # Calculate and print execution time in milliseconds
-    #print(f"Execution time: { (end_time - start_time) * 1000:.2f} ms")
+    
+        for i, track in enumerate(track_boxes):
 
+            
+            box = track["box"]
+            confidence = track.get("confidence", 0)
+            object_class = track.get("object_class", "Unknown")
+
+            # Convert box coordinates to integers
+            box = box.astype(int)
+            centroid = [(box[0] + box[2]) // 2, (box[1] + box[3]) // 2]
+
+            # Draw rectangle on the image
+            # Check if it's the last element
+            if i == len(track_boxes) - 1:
+                cv2.rectangle(combined_img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)  # Green rectangle
+                # Draw label and confidence text on the image
+                label = f"{object_class}: {confidence:.2f}"
+                cv2.putText(combined_img, label, (box[0], box[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+
+            # Draw circles for the last N positions of the centroid, where N is the length of track
+            #radius = max(1, int((30 - i) * 0.5))  # Ensure radius is non-negative
+            radius = min(30,int((i + 1) * 0.5))  # Gradually increase the size of the circles
+
+            # Draw circle on the image
+            cv2.circle(combined_img, centroid, radius, (0, 0, 255), -1)
 
     scriptOp.copyNumpyArray(combined_img)
 
