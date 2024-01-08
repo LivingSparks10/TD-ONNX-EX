@@ -349,6 +349,9 @@ def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_
     coverage_threshold = 0.3
     for box, score, class_id in zip(boxes, scores, class_ids):
         color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
+        if bool(op('script2').par.Splitcolors): 
+            color = (0,255,0)
+
         x1, y1, x2, y2 = box.astype(int)
         # Calculate the area of the bounding box
         box_area = (x2 - x1) * (y2 - y1)
@@ -406,6 +409,9 @@ def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None, draw_con
                 crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
                 crop_mask_img = mask_img[y1:y2, x1:x2]
                 color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
+                if bool(op('script2').par.Splitcolors): 
+                    color = (255,0,0)
+
                 crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
                 mask_img[y1:y2, x1:x2] = crop_mask_img
 
@@ -418,41 +424,6 @@ def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None, draw_con
 
     return mask_img
 
-
-
-
-
-def draw_comparison(img1, img2, name1, name2, fontsize=2.6, text_thickness=3):
-    (tw, th), _ = cv2.getTextSize(text=name1, fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                  fontScale=fontsize, thickness=text_thickness)
-    x1 = img1.shape[1] // 3
-    y1 = th
-    offset = th // 5
-    cv2.rectangle(img1, (x1 - offset * 2, y1 + offset),
-                  (x1 + tw + offset * 2, y1 - th - offset), (0, 115, 255), -1)
-    cv2.putText(img1, name1,
-                (x1, y1),
-                cv2.FONT_HERSHEY_DUPLEX, fontsize,
-                (255, 255, 255), text_thickness)
-
-    (tw, th), _ = cv2.getTextSize(text=name2, fontFace=cv2.FONT_HERSHEY_DUPLEX,
-                                  fontScale=fontsize, thickness=text_thickness)
-    x1 = img2.shape[1] // 3
-    y1 = th
-    offset = th // 5
-    cv2.rectangle(img2, (x1 - offset * 2, y1 + offset),
-                  (x1 + tw + offset * 2, y1 - th - offset), (94, 23, 235), -1)
-
-    cv2.putText(img2, name2,
-                (x1, y1),
-                cv2.FONT_HERSHEY_DUPLEX, fontsize,
-                (255, 255, 255), text_thickness)
-
-    combined_img = cv2.hconcat([img1, img2])
-    if combined_img.shape[1] > 3840:
-        combined_img = cv2.resize(combined_img, (3840, 2160))
-
-    return combined_img
 
 
 class YOLOSeg:
@@ -641,7 +612,10 @@ print("   ")
 print("   ")
 print( "Using device",onnxruntime.get_device()  )
 
-mot = MultiObjectTracker(track_persistance = 2, minimum_track_length = 2, iou_lower_threshold = 0.04, interpolate_tracks = True)
+mot = MultiObjectTracker(track_persistance = 2, 
+                         minimum_track_length = 2, 
+                         iou_lower_threshold = 0.04, 
+                         interpolate_tracks = True)
 
 
 def onCook(scriptOp):
@@ -699,17 +673,16 @@ def onCook(scriptOp):
 
             # Draw rectangle on the image
             # Check if it's the last element
-            if i == len(track_boxes) - 1:
-                cv2.rectangle(combined_img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)  # Green rectangle
-                # Draw label and confidence text on the image
-                label = f"{object_class}: {confidence:.2f}"
-                cv2.putText(combined_img, label, (box[0], box[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+            if  bool(op('script2').par.Drawlabel): 
+                if i == len(track_boxes) - 1:
+                    #cv2.rectangle(combined_img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)  # Green rectangle
+                    # Draw label and confidence text on the image
+                    label = f"{object_class}: {confidence:.2f}"
+                    cv2.putText(combined_img, label, (box[0], box[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
 
-            # Draw circles for the last N positions of the centroid, where N is the length of track
-            #radius = max(1, int((30 - i) * 0.5))  # Ensure radius is non-negative
             radius = min(30,int((i + 1) * 0.5))  # Gradually increase the size of the circles
-
             # Draw circle on the image
+            
             cv2.circle(combined_img, centroid, radius, (0, 0, 255), -1)
 
     scriptOp.copyNumpyArray(combined_img)
@@ -730,6 +703,30 @@ def onSetupParameters(scriptOp):
 				"page": "Fast Neural Style",
 				"style": "File",
 				"default": "",
+				"enable": true,
+				"startSection": false,
+				"readOnly": false,
+				"enableExpr": null,
+				"help": ""
+			},
+			"Drawlabel": {
+				"name": "Drawlabel",
+				"label": "DrawLabel",
+				"page": "Fast Neural Style",
+				"style": "Toggle",
+				"default": false,
+				"enable": true,
+				"startSection": false,
+				"readOnly": false,
+				"enableExpr": null,
+				"help": ""
+			},
+			"Splitcolors": {
+				"name": "Splitcolors",
+				"label": "SplitColors",
+				"page": "Fast Neural Style",
+				"style": "Toggle",
+				"default": false,
 				"enable": true,
 				"startSection": false,
 				"readOnly": false,
