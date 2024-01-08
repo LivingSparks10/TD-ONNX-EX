@@ -91,15 +91,25 @@ def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_
     #     label = class_names[class_id]
     #     print(label)
 
-    # if len(mask_maps):
-    #     return mask_img 
-    # Draw bounding boxes and labels of detections
+    #if len(mask_maps):
+    #    return mask_img 
+    #Draw bounding boxes and labels of detections
+
+
+    coverage_threshold = 0.3
     for box, score, class_id in zip(boxes, scores, class_ids):
         color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
         x1, y1, x2, y2 = box.astype(int)
+        # Calculate the area of the bounding box
+        box_area = (x2 - x1) * (y2 - y1)
 
-        # Draw rectangle
-        cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
+        # Calculate the percentage of the image covered by the bounding box
+        coverage_percentage = box_area / (img_height * img_width)
+        if  bool(op('script2').par.Drawboxes):
+            # Exclude boxes that cover more than 30%
+            if coverage_percentage <= coverage_threshold:
+            # Draw rectangle
+                cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
 
         # label = class_names[class_id]
         # caption = f'{label} {int(score * 100)}%'
@@ -124,23 +134,30 @@ def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_
 
 
 def draw_masks(image, boxes, class_ids, mask_alpha=0.3, mask_maps=None, draw_contours=False):
-    global font
     mask_img = np.zeros_like(image)
     countours_img = np.zeros_like(image)
-    img_height, _ = image.shape[:2]
+    img_height,img_width = image.shape[:2]
+    coverage_threshold = 0.3
 
     # Draw bounding boxes and labels of detections
     for i, (box, class_id) in enumerate(zip(boxes, class_ids)):
         color = colors[class_id]
 
         x1, y1, x2, y2 = box.astype(int)
+        # Calculate the area of the bounding box
+        box_area = (x2 - x1) * (y2 - y1)
 
-        if mask_maps is not None:
-            crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
-            crop_mask_img = mask_img[y1:y2, x1:x2]
-            color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
-            crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
-            mask_img[y1:y2, x1:x2] = crop_mask_img
+        # Calculate the percentage of the image covered by the bounding box
+        coverage_percentage = box_area / (img_height * img_width)
+
+        # Exclude boxes that cover more than 30%
+        if coverage_percentage <= coverage_threshold:
+            if mask_maps is not None:
+                crop_mask = mask_maps[i][y1:y2, x1:x2, np.newaxis]
+                crop_mask_img = mask_img[y1:y2, x1:x2]
+                color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
+                crop_mask_img = crop_mask_img * (1 - crop_mask) + crop_mask * color
+                mask_img[y1:y2, x1:x2] = crop_mask_img
 
             # contours, _ = cv2.findContours(crop_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             # # Offset the contours by x1 and y1
@@ -451,6 +468,18 @@ def onSetupParameters(scriptOp):
 				"page": "Fast Neural Style",
 				"style": "File",
 				"default": "",
+				"enable": true,
+				"startSection": false,
+				"readOnly": false,
+				"enableExpr": null,
+				"help": ""
+			},
+			"Drawboxes": {
+				"name": "Drawboxes",
+				"label": "DrawBoxes",
+				"page": "Fast Neural Style",
+				"style": "Toggle",
+				"default": false,
 				"enable": true,
 				"startSection": false,
 				"readOnly": false,
