@@ -345,12 +345,12 @@ def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_
     #    return mask_img 
     #Draw bounding boxes and labels of detections
 
+    split_color_boxes = np.zeros_like(mask_img)
 
     coverage_threshold = 0.3
     for box, score, class_id in zip(boxes, scores, class_ids):
         color = colors[class_id].astype(int)/255  # Assuming colors is a NumPy array
-        if bool(op('script2').par.Splitcolors): 
-            color = (0,255,0)
+
 
         x1, y1, x2, y2 = box.astype(int)
         # Calculate the area of the bounding box
@@ -361,8 +361,12 @@ def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_
         if  bool(op('script2').par.Drawboxes):
             # Exclude boxes that cover more than 30%
             if coverage_percentage <= coverage_threshold:
-            # Draw rectangle
-                cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
+                if bool(op('script2').par.Splitcolors): 
+                    color = (0,255,0)
+                    # Draw rectangle
+                    cv2.rectangle(split_color_boxes, (x1, y1), (x2, y2), color, 2)
+                else:
+                    cv2.rectangle(mask_img, (x1, y1), (x2, y2), color, 2)
 
         # label = class_names[class_id]
         # caption = f'{label} {int(score * 100)}%'
@@ -376,9 +380,8 @@ def draw_detections(image_shape, boxes, scores, class_ids, mask_alpha=0.3, mask_
         # cv2.putText(mask_img, caption, (x1, y1), cv2.FONT_HERSHEY_SIMPLEX, size, (255, 255, 255), text_thickness, cv2.LINE_AA)
         
        
-    
-
-
+    if bool(op('script2').par.Splitcolors):
+        mask_img = cv2.add(mask_img,split_color_boxes)
         
 
 
@@ -642,7 +645,7 @@ def onCook(scriptOp):
     formatted_boxes = []
     for box, score, class_id, mask in zip(boxes, scores, class_ids, masks):
         confidence = float(score)
-        object_class = class_names[class_id]
+        object_class = class_id
         formatted_box = {
             "box": np.array([box[0], box[1], box[2], box[3]]),  # Convert to (x_min, y_min, x_max, y_max) format
             "confidence": confidence,
@@ -655,7 +658,8 @@ def onCook(scriptOp):
     #mot.print_internal_state()
 
     combined_img = yoloseg.draw_masks(orig_img_shape, mask_alpha=0.5) # 23 millisecond
-    
+    split_color_tracking = np.zeros_like(combined_img)
+        
     for track in mot.active_tracks:
         track_boxes = track.boxes
 
@@ -666,24 +670,29 @@ def onCook(scriptOp):
             box = track["box"]
             confidence = track.get("confidence", 0)
             object_class = track.get("object_class", "Unknown")
-
             # Convert box coordinates to integers
             box = box.astype(int)
             centroid = [(box[0] + box[2]) // 2, (box[1] + box[3]) // 2]
 
-            # Draw rectangle on the image
             # Check if it's the last element
             if  bool(op('script2').par.Drawlabel): 
                 if i == len(track_boxes) - 1:
-                    #cv2.rectangle(combined_img, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)  # Green rectangle
                     # Draw label and confidence text on the image
-                    label = f"{object_class}: {confidence:.2f}"
+                    label = f"{class_names[object_class]}: {confidence:.2f}"
                     cv2.putText(combined_img, label, (box[0], box[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
 
             radius = min(30,int((i + 1) * 0.5))  # Gradually increase the size of the circles
             # Draw circle on the image
-            
-            cv2.circle(combined_img, centroid, radius, (0, 0, 255), -1)
+            color = colors[object_class].astype(int)/255  # Assuming colors is a NumPy array
+
+            if bool(op('script2').par.Splitcolors): 
+                color = (0,0,255)
+                cv2.circle(split_color_tracking, centroid, radius, color, -1)
+            else:
+                cv2.circle(combined_img, centroid, radius, color, -1)
+
+    if bool(op('script2').par.Splitcolors):
+        combined_img = cv2.add(combined_img,split_color_tracking)
 
     scriptOp.copyNumpyArray(combined_img)
 
