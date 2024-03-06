@@ -463,15 +463,15 @@ class YOLOSeg:
         outputs = self.inference(input_tensor)
 
         self.boxes, self.scores, self.class_ids, mask_pred = self.process_box_output(outputs[0])
-        self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
+        #self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
 
-        return self.boxes, self.scores, self.class_ids, self.mask_maps
+        return self.boxes, self.scores, self.class_ids, None #self.mask_maps
 
 
     def inference(self, input_tensor):
-        start = time.perf_counter()
+        #start = time.perf_counter()
         outputs = self.session.run(None, {self.input_names[0]: input_tensor})
-        print(f"Inference time: {(time.perf_counter() - start)*1000:.2f} ms")
+        #print(f"Inference time: {(time.perf_counter() - start)*1000:.2f} ms")
         #formatted_output = "out yoloseg {:.15f}".format(outputs[0][0][0][0])
 
         return outputs
@@ -606,7 +606,7 @@ class YOLOSeg:
 
 
 
-Modelpath = str(op('script2').par.Onnxmodel)
+Modelpath = str(op('scriptOp').par.Onnxmodel)
 
 yoloseg = YOLOSeg(Modelpath, conf_thres=0.3, iou_thres=0.5)
 
@@ -625,79 +625,68 @@ mot = MultiObjectTracker(track_persistance = 2,
                          interpolate_tracks = True)
 
 
+
+# Segment Object
+
+segmentObject = True
+
+
+# Table1 operator with a table to fill
+table = op('table1')
+
+resX = int(op('info')["resx"])
+resY = int(op('info')["resy"])
+orig_img_shape = (resY,resX,4)
+
+#Classes 
+classes_str = str(op('scriptOp').par.Classes)  # Get the string
+classes = None  # Default value
+
+if classes_str:  # Check if the string is not empty
+    classes = list(map(int, classes_str.split(',')))  # Convert string to list of integers
+
+print(classes)
+
 def onCook(scriptOp):
+    #print("Coook",int(time.time()))
+    #Knowing that the  scriptOp.inputs[0].numpyArray().shape is (640, 640, 4) can you optimize this code?
+    #input = scriptOp.inputs[0].numpyArray()[:, :, :3].transpose(2, 0, 1).reshape(1, 3, 640, 640)
+    input = np.moveaxis(scriptOp.inputs[0].numpyArray()[:, :, :3], -1, 0)[np.newaxis]
+    #input = scriptOp.inputs[0].numpyArray()[..., :3].T[None, ...]
 
 
-    img = scriptOp.inputs[0].numpyArray()
-    img_copy_CV = img[:, :, :3]
-    input = img_copy_CV.transpose(2, 0, 1).reshape(1, 3, 640, 640).astype("float32")
+    scriptOp.copyNumpyArray(scriptOp.inputs[0].numpyArray())
 
-    
-    conf = float(op('script2').par.Conf)
-    yoloseg.conf_threshold = conf
-
-    # Run YOLOv8 model
-    resX = int(op('info')["resx"])
-    resY = int(op('info')["resy"])
-    orig_img_shape = (resY,resX,4)
-    start_time = time.time()
-
-    boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape) # 30 millisecond
-
-    formatted_boxes = []
-    for box, score, class_id, mask in zip(boxes, scores, class_ids, masks):
-        confidence = float(score)
-        object_class = class_id
-        formatted_box = {
-            "box": np.array([box[0], box[1], box[2], box[3]]),  # Convert to (x_min, y_min, x_max, y_max) format
-            "confidence": confidence,
-            "object_class": object_class
-        }
-        formatted_boxes.append(formatted_box)
-
-    # Use the formatted_boxes in your following steps
-    mot.step(formatted_boxes)
-    #mot.print_internal_state()
-
-    combined_img = yoloseg.draw_masks(orig_img_shape, mask_alpha=0.5) # 23 millisecond
-    split_color_tracking = np.zeros_like(combined_img)
         
-    for track in mot.active_tracks:
-        track_boxes = track.boxes
+    yoloseg.conf_threshold = float(op('scriptOp').par.Conf)
+
+
+    #start_time = time.time()
+    #Run YOLOv8 model
+    boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape)
+
+    # Clear table before adding new data
+    table.clear()
+
+    # Populate table with data xmin ymin xmax ymax
+    # for box, score, class_id in zip(boxes, scores, class_ids):
+    #     table.appendRow([box[0], box[1], box[2], box[3], score, class_id])
 
     
-        for i, track in enumerate(track_boxes):
+    for box, score, class_id in zip(boxes, scores, class_ids):
+        if classes is None or class_id in classes:  # Check if class_id is in the list
+            x1, y1, x2, y2 = box
 
-            
-            box = track["box"]
-            confidence = track.get("confidence", 0)
-            object_class = track.get("object_class", "Unknown")
-            # Convert box coordinates to integers
-            box = box.astype(int)
-            centroid = [(box[0] + box[2]) // 2, (box[1] + box[3]) // 2]
+            cx = ((x1 + x2) / 2) / resX
+            cy = 1.0 - ((y1 + y2) / 2) / resY  # Flipping the y-coordinate
+            w = (x2 - x1) / resX
+            h = (y2 - y1) / resY
 
-            # Check if it's the last element
-            if  bool(op('script2').par.Drawlabel): 
-                if i == len(track_boxes) - 1:
-                    # Draw label and confidence text on the image
-                    label = f"{class_names[object_class]}: {confidence:.2f}"
-                    cv2.putText(combined_img, label, (box[0], box[1] - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
 
-            radius = min(30,int((i + 1) * 0.5))  # Gradually increase the size of the circles
-            # Draw circle on the image
-            color = colors[object_class].astype(int)/255  # Assuming colors is a NumPy array
+            #table.appendRow([cx, cy, w, h, score, class_id, class_names[class_id]])
+            table.appendRow([round(cx, 5), round(cy, 5), round(w, 5), round(h, 5), round(score, 5), class_id, class_names[class_id]])
 
-            if bool(op('script2').par.Splitcolors): 
-                color = (0,0,255)
-                cv2.circle(split_color_tracking, centroid, radius, color, -1)
-            else:
-                cv2.circle(combined_img, centroid, radius, color, -1)
-
-    if bool(op('script2').par.Splitcolors):
-        combined_img = cv2.add(combined_img,split_color_tracking)
-
-    scriptOp.copyNumpyArray(combined_img)
-
+ 
     return
 
 def onSetupParameters(scriptOp):
@@ -786,6 +775,18 @@ def onSetupParameters(scriptOp):
 				"normMax": 1.0,
 				"clampMin": false,
 				"clampMax": false
+			},
+			"Classes": {
+				"name": "Classes",
+				"label": "Classes",
+				"page": "Fast Neural Style",
+				"style": "Str",
+				"default": "",
+				"enable": true,
+				"startSection": false,
+				"readOnly": false,
+				"enableExpr": null,
+				"help": ""
 			}
 		}
 	}
