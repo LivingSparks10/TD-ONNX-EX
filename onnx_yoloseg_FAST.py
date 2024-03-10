@@ -440,10 +440,10 @@ class YOLOSeg:
         self.initialize_model(path)
 
     
-    def direct_call(self, input_tensor,image_shape):
+    def direct_call(self, input_tensor,image_shape,segmentObject):
         self.img_height,  self.img_width, nchan = image_shape
 
-        return self.direct_segment_objects(input_tensor)
+        return self.direct_segment_objects(input_tensor,segmentObject)
 
     def initialize_model(self, path):
         self.session = onnxruntime.InferenceSession(path,
@@ -458,14 +458,16 @@ class YOLOSeg:
 
 
 
-    def direct_segment_objects(self, input_tensor):
+    def direct_segment_objects(self, input_tensor,segmentObject):
         # Perform inference on the image
         outputs = self.inference(input_tensor)
 
         self.boxes, self.scores, self.class_ids, mask_pred = self.process_box_output(outputs[0])
-        #self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
+        self.mask_maps = None
+        if segmentObject:
+            self.mask_maps = self.process_mask_output(mask_pred, outputs[1])
 
-        return self.boxes, self.scores, self.class_ids, None #self.mask_maps
+        return self.boxes, self.scores, self.class_ids, self.mask_maps
 
 
     def inference(self, input_tensor):
@@ -619,16 +621,15 @@ print("   ")
 print("   ")
 print( "Using device",onnxruntime.get_device()  )
 
-mot = MultiObjectTracker(track_persistance = 2, 
-                         minimum_track_length = 2, 
-                         iou_lower_threshold = 0.04, 
-                         interpolate_tracks = True)
+# mot = MultiObjectTracker(track_persistance = 2, 
+#                          minimum_track_length = 2, 
+#                          iou_lower_threshold = 0.04, 
+#                          interpolate_tracks = True)
 
 
 
 # Segment Object
 
-segmentObject = True
 
 
 # Table1 operator with a table to fill
@@ -648,14 +649,15 @@ if classes_str:  # Check if the string is not empty
 print(classes)
 
 def onCook(scriptOp):
+    segmentObject = bool(scriptOp.par.Segmentobj)
+
     #print("Coook",int(time.time()))
     #Knowing that the  scriptOp.inputs[0].numpyArray().shape is (640, 640, 4) can you optimize this code?
     #input = scriptOp.inputs[0].numpyArray()[:, :, :3].transpose(2, 0, 1).reshape(1, 3, 640, 640)
+
     input = np.moveaxis(scriptOp.inputs[0].numpyArray()[:, :, :3], -1, 0)[np.newaxis]
     #input = scriptOp.inputs[0].numpyArray()[..., :3].T[None, ...]
 
-
-    scriptOp.copyNumpyArray(scriptOp.inputs[0].numpyArray())
 
         
     yoloseg.conf_threshold = float(op('scriptOp').par.Conf)
@@ -663,7 +665,17 @@ def onCook(scriptOp):
 
     #start_time = time.time()
     #Run YOLOv8 model
-    boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape)
+    boxes, scores, class_ids, masks = yoloseg.direct_call(input,orig_img_shape,segmentObject)
+    if segmentObject:
+        summed_mask = np.empty((resY, resX,3)).astype(np.float32)
+
+        if segmentObject and len(masks)>0:
+            summed_mask = np.sum(masks, axis=0)
+            summed_mask = summed_mask.astype(np.float32)[..., np.newaxis]
+            summed_mask = cv2.cvtColor(summed_mask, cv2.COLOR_GRAY2BGR)
+
+        scriptOp.copyNumpyArray(summed_mask) 
+   
 
     # Clear table before adding new data
     table.clear()
@@ -703,6 +715,18 @@ def onSetupParameters(scriptOp):
 				"page": "Fast Neural Style",
 				"style": "File",
 				"default": "",
+				"enable": true,
+				"startSection": false,
+				"readOnly": false,
+				"enableExpr": null,
+				"help": ""
+			},
+			"Segmentobj": {
+				"name": "Segmentobj",
+				"label": "segmentObj",
+				"page": "Fast Neural Style",
+				"style": "Toggle",
+				"default": false,
 				"enable": true,
 				"startSection": false,
 				"readOnly": false,
